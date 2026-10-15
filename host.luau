@@ -91,6 +91,8 @@ local function problem_view(text: string): Node
 end
 
 local function list_view(state: State, linked: string?): Node
+	-- The browser name only tells profiles apart when there are several.
+	local grouped = profiles.sole_browser(state.list) == nil
 	local items: { Item } = {}
 	for _, p in state.list do
 		local label: { Span | string } = { ui.span(p.name) }
@@ -102,7 +104,7 @@ local function list_view(state: State, linked: string?): Node
 		end
 		table.insert(items, {
 			label = label,
-			detail = { ui.span(p.browser.name, "muted"), ui.span("  " .. p.dir, "muted path") },
+			detail = if grouped then { ui.span(p.browser.name, "muted") } else nil,
 			value = if p.account ~= "" then { ui.span(p.account, "muted") } else nil,
 		})
 	end

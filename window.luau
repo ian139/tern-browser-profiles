@@ -1,10 +1,19 @@
 --!strict
 -- The window half: the profile switcher, a palette command per profile, the
--- "links open in" picker, cookie import, the block opener, and link routing.
+-- link-routing picker, cookie import, and link routing.
 
 local profiles = require("./profiles")
 
-local GROUP = "Browser Profiles"
+-- Read once when the window starts, for the per-profile commands and for how
+-- commands name the browsers: someone whose profiles all live in Chrome sees
+-- "Chrome: Open profile…", never a word about other browsers.
+local startup, startup_err = profiles.load()
+if startup_err ~= nil then
+	tern.log.warn("brave-profiles", startup_err)
+end
+local SOLE = profiles.sole_browser(startup)
+local PREFIX = SOLE or "Browser"
+local GROUP = SOLE or "Browser Profiles"
 
 -- Command ids are letters, digits, `_` and `-`, unique per command:
 -- distinct profile ids can slugify alike ("Profile 1" and "Profile-1"), so
@@ -58,15 +67,23 @@ local function load_or_explain(cx: WindowCx): { profiles.Profile }?
 	return nil
 end
 
--- Picker rows for `list`: one per profile, grouped by browser (the list is
+-- "Chrome profile" when every profile of `list` is Chrome's, else
+-- "browser profile".
+local function noun(list: { profiles.Profile }): string
+	return (profiles.sole_browser(list) or "browser") .. " profile"
+end
+
+-- Picker rows for `list`: one per profile, showing its signed-in account.
+-- Rows are grouped by browser only when there is more than one (the list is
 -- already in browser order, so groups are contiguous).
 local function profile_items(list: { profiles.Profile }, current: string?): { PickItem }
+	local grouped = profiles.sole_browser(list) == nil
 	local items: { PickItem } = {}
 	for _, p in list do
 		table.insert(items, {
 			label = p.name,
-			detail = if p.account ~= "" then p.account else p.dir,
-			group = p.browser.name,
+			detail = if p.account ~= "" then p.account else nil,
+			group = if grouped then p.browser.name else nil,
 			current = current ~= nil and p.id == current,
 			id = p.id,
 		})
@@ -149,14 +166,14 @@ end
 
 tern.command({
 	id = "switch",
-	title = "Open browser profile…",
+	title = PREFIX .. ": Open profile…",
 	icon = "compass",
 	group = GROUP,
 	run = function(cx: WindowCx)
 		-- Read each time: profiles made since the window started show up.
 		local list = load_or_explain(cx)
 		if list ~= nil then
-			pick_profile(cx, list, "Open a browser profile", launch)
+			pick_profile(cx, list, "Open a " .. noun(list), launch)
 		end
 	end,
 })
@@ -165,19 +182,16 @@ tern.bind("alt+shift+b", "plugin.brave-profiles.switch")
 
 tern.command({
 	id = "links",
-	title = "Route links to a browser profile…",
+	title = PREFIX .. ": Open Tern's links in a profile…",
 	icon = "share",
 	group = GROUP,
 	run = function(cx: WindowCx)
 		local current = profiles.link_id()
 		local list = profiles.load()
-		local items = profile_items(list, current)
-		table.insert(items, {
-			label = "Tern (stop routing)",
-			detail = "links open in Tern",
-			group = "Tern",
-			current = current == nil,
-		})
+		local items: { PickItem } = {
+			{ label = "Tern", detail = "links open in Tern (default)", current = current == nil },
+		}
+		table.move(profile_items(list, current), 1, #list, 2, items)
 		cx:pick({ items = items, placeholder = "Open plain link clicks in", icon = "share" })
 			:next(function(item: PickItem?, _e: string?, pick_cx: WindowCx?)
 				if item == nil then
@@ -202,7 +216,7 @@ tern.command({
 
 tern.command({
 	id = "import",
-	title = "Sign this Tern page in from a browser profile…",
+	title = PREFIX .. ": Sign this Tern page in with a profile…",
 	icon = "download",
 	group = GROUP,
 	run = function(cx: WindowCx)
@@ -232,7 +246,7 @@ tern.command({
 			end
 			local list = load_or_explain(wcx)
 			if list ~= nil then
-				pick_profile(wcx, list, "Sign " .. host .. " in with", function(pick_cx, p)
+				pick_profile(wcx, list, "Sign " .. host .. " in with a " .. noun(list), function(pick_cx, p)
 					import_cookies(pick_cx, p, target, url, host)
 				end)
 			end
@@ -240,25 +254,19 @@ tern.command({
 	end,
 })
 
--- One command per profile, registered when the window starts, that opens it
--- without a picker. After making a new profile, the switcher sees it at
--- once; its own command arrives with the next window (or plugin reload).
-do
-	local list, err = profiles.load()
-	if err ~= nil then
-		tern.log.warn("brave-profiles", err)
-	end
-	for _, p in list do
-		tern.command({
-			id = unique_id("open-" .. slug(p.id)),
-			title = p.browser.name .. ": " .. p.name .. account_suffix(p),
-			icon = "compass",
-			group = GROUP,
-			run = function(cx: WindowCx)
-				launch(cx, p)
-			end,
-		})
-	end
+-- One command per profile that opens it without a picker ("Chrome: Work").
+-- A profile made after the window started is in the switcher at once; its
+-- own command arrives with the next window (or plugin reload).
+for _, p in startup do
+	tern.command({
+		id = unique_id("open-" .. slug(p.id)),
+		title = p.browser.name .. ": " .. p.name .. account_suffix(p),
+		icon = "compass",
+		group = GROUP,
+		run = function(cx: WindowCx)
+			launch(cx, p)
+		end,
+	})
 end
 
 -- With a routing profile chosen, plain http(s) link clicks open in it.

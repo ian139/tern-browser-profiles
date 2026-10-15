@@ -66,13 +66,27 @@ for _, b in M.BROWSERS do
 	by_key[b.key] = b
 end
 
--- Bundle paths found by the last `installed()`, by browser key, so a link
--- click does not stat the Applications folders again.
+-- Bundle paths found so far, by browser key, so a link click does not stat
+-- the Applications folders again. Each listing of the folders starts over.
 local bundles: { [string]: string } = {}
 
 local function home(): string?
 	local h = tern.getenv("HOME")
 	return if h == nil or h == "" then nil else h
+end
+
+-- `b` as found on this machine; remembers where its bundle is.
+local function locate(b: Browser, bundle: string, h: string): Installed
+	bundles[b.key] = bundle
+	return {
+		key = b.key,
+		name = b.name,
+		app = b.app,
+		data = b.data,
+		keychain = b.keychain,
+		bundle = bundle,
+		root = h .. "/" .. SUPPORT .. "/" .. b.data,
+	}
 end
 
 -- The names in an Applications folder, as a set (empty when it cannot be
@@ -91,7 +105,7 @@ end
 -- The registry browsers whose bundle is in /Applications or ~/Applications,
 -- in registry order, or an empty list and a reason. Each folder is listed
 -- once, however many browsers the registry knows.
-function M.installed(): ({ Installed }, string?)
+local function installed(): ({ Installed }, string?)
 	local h = home()
 	if h == nil then
 		return {}, "HOME is not set"
@@ -106,16 +120,7 @@ function M.installed(): ({ Installed }, string?)
 			elseif user[b.app] then h .. "/Applications/" .. b.app
 			else nil
 		if bundle ~= nil then
-			bundles[b.key] = bundle
-			table.insert(out, {
-				key = b.key,
-				name = b.name,
-				app = b.app,
-				data = b.data,
-				keychain = b.keychain,
-				bundle = bundle,
-				root = h .. "/" .. SUPPORT .. "/" .. b.data,
-			})
+			table.insert(out, locate(b, bundle, h))
 		end
 	end
 	if #out == 0 then
@@ -283,7 +288,7 @@ end
 -- A browser whose Local State is missing or malformed contributes nothing.
 -- Returns the list and nil, or an empty list and a reason.
 function M.load(): ({ Profile }, string?)
-	local browsers, err = M.installed()
+	local browsers, err = installed()
 	if err ~= nil then
 		return {}, err
 	end
@@ -309,6 +314,22 @@ function M.load(): ({ Profile }, string?)
 	return out, nil
 end
 
+-- The browser name every profile of `list` shares, or nil when they come
+-- from several browsers (or none). Someone who only uses Chrome is then
+-- shown "Chrome", not browser groups.
+function M.sole_browser(list: { Profile }): string?
+	local first = list[1]
+	if first == nil then
+		return nil
+	end
+	for _, p in list do
+		if p.browser.key ~= first.browser.key then
+			return nil
+		end
+	end
+	return first.browser.name
+end
+
 function M.find(list: { Profile }, id: string?): Profile?
 	if id == nil then
 		return nil
@@ -322,9 +343,9 @@ function M.find(list: { Profile }, id: string?): Profile?
 end
 
 -- The profile a stored id names, without reading Local State: its browser
--- (bundle from the last `installed()`, else looked up now) and directory.
--- The name is the directory. Nil when the id is malformed, the browser is
--- not installed or HOME is unset; the directory itself is not checked.
+-- (bundle from the last `load()`, else looked up now) and directory. The
+-- name is the directory. Nil when the id is malformed, the browser is not
+-- installed or HOME is unset; the directory itself is not checked.
 function M.resolve(id: string): Profile?
 	local key, dir = string.match(id, "^([^/]+)/(.+)$")
 	local b = if key ~= nil then by_key[key] else nil
@@ -340,7 +361,6 @@ function M.resolve(id: string): Profile?
 		for _, path in { "/Applications/" .. b.app, h .. "/Applications/" .. b.app } do
 			if tern.fs.exists(path) then
 				bundle = path
-				bundles[b.key] = path
 				break
 			end
 		end
@@ -348,16 +368,7 @@ function M.resolve(id: string): Profile?
 	if bundle == nil then
 		return nil
 	end
-	local installed: Installed = {
-		key = b.key,
-		name = b.name,
-		app = b.app,
-		data = b.data,
-		keychain = b.keychain,
-		bundle = bundle,
-		root = h .. "/" .. SUPPORT .. "/" .. b.data,
-	}
-	return { id = id, browser = installed, dir = dir, name = dir, account = "", last_used = false }
+	return { id = id, browser = locate(b, bundle, h), dir = dir, name = dir, account = "", last_used = false }
 end
 
 -- The id of the profile this plugin routes links to, or nil. A corrupt

@@ -7,16 +7,23 @@ id remains `brave-profiles`.
 
 ## Open a profile
 
-Press **⌥⇧B** (`alt+shift+b`) or choose **Open browser profile…** in the
-palette. The picker groups profiles by browser, the browser you used most
-recently first, and shows their signed-in accounts. It reads fresh profile
-information when opened, so newly created
-profiles appear without reloading plugins. Direct palette commands named
-**<Browser>: <profile>** open individual profiles without the picker.
+Press **⌥⇧B** (`alt+shift+b`) to pick a profile, or type its name in the
+palette: every profile has a command such as **Chrome: Work**.
 
-A browser is installed when its app bundle exists in `/Applications` or
-`~/Applications`. Profile names, order and signed-in addresses come from
-its `Local State`; a missing or malformed file hides only that browser.
+Commands speak about the browsers you actually use. If all your profiles
+are Chrome's, the commands are **Chrome: Open profile…**, **Chrome: Open
+Tern's links in a profile…** and **Chrome: Sign this Tern page in with a
+profile…**, and the picker is a plain list of your Chrome profiles. With
+profiles in several browsers the commands start with **Browser:** and the
+picker groups profiles by browser, the one you used most recently first.
+Each row shows the profile's signed-in account. The picker reads profiles
+fresh each time, so a new profile appears without reloading plugins; its
+own command arrives with the next window.
+
+A browser counts when its app is in `/Applications` or `~/Applications`
+and it has been run at least once (its `Local State` file holds the profile
+names, order and signed-in addresses; a malformed file hides only that
+browser).
 Supported browsers and their storage locations are:
 
 | Browser | App bundle | Data directory | Keychain item |
@@ -42,15 +49,15 @@ Data directories are relative to `~/Library/Application Support`.
 
 ## Route links
 
-Use **Route links to a browser profile…** (the `links` palette picker) to
-choose a profile for Tern's plain HTTP(S) link clicks. Choose **Tern (stop
-routing)** to stop. Clicking with ⌘, ⌥, ⇧ or ⌃ held bypasses routing and
+Use **Open Tern's links in a profile…** to send Tern's plain HTTP(S) link
+clicks to a profile. Choose **Tern** (the first row, ticked while nothing is
+routed) to stop. Clicking with ⌘, ⌥, ⇧ or ⌃ held bypasses routing and
 opens the link in Tern instead.
 
 ## Sign a Tern page in
 
-Focus a Tern browser block and use **Sign this Tern page in from a browser
-profile…** (the `import` palette picker) to select a profile. The plugin
+Focus a Tern browser block and use **Sign this Tern page in with a
+profile…** to choose a profile. The plugin
 copies that page's *site* cookies into Tern's browser
 and reloads the page. It includes the host and sibling subdomains of the
 same site so SSO redirects work. This happens only when explicitly requested
@@ -86,7 +93,8 @@ counts, never cookie values. Errors go to stderr with a nonzero exit status.
 ## The block
 
 Choose **New Browser Profiles block** in the palette to keep a list of every
-profile in a pane. It shows each profile's browser and signed-in account.
+profile in a pane. It shows each profile's signed-in account, and its
+browser when your profiles span several.
 
 - `↑` / `↓` or `k` / `j`: move the selection.
 - `Home` / `End`: jump to the first or last profile.
