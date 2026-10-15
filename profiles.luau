@@ -57,6 +57,8 @@ M.BROWSERS = {
 	{ key = "edge-canary", name = "Edge Canary", app = "Microsoft Edge Canary.app", data = "Microsoft Edge Canary", keychain = "Microsoft Edge Safe Storage" },
 	{ key = "vivaldi", name = "Vivaldi", app = "Vivaldi.app", data = "Vivaldi", keychain = "Vivaldi Safe Storage" },
 	{ key = "helium", name = "Helium", app = "Helium.app", data = "net.imput.helium", keychain = "Helium Storage Key" },
+	{ key = "yandex", name = "Yandex", app = "Yandex.app", data = "Yandex/YandexBrowser", keychain = "Yandex Safe Storage" },
+	{ key = "whale", name = "Whale", app = "Whale.app", data = "Naver/Whale", keychain = "Whale Safe Storage" },
 } :: { Browser }
 
 local by_key: { [string]: Browser } = {}

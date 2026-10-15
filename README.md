@@ -35,6 +35,8 @@ Supported browsers and their storage locations are:
 | Edge Canary | `Microsoft Edge Canary.app` | `Microsoft Edge Canary` | `Microsoft Edge Safe Storage` |
 | Vivaldi | `Vivaldi.app` | `Vivaldi` | `Vivaldi Safe Storage` |
 | Helium | `Helium.app` | `net.imput.helium` | `Helium Storage Key` |
+| Yandex | `Yandex.app` | `Yandex/YandexBrowser` | `Yandex Safe Storage` |
+| Naver Whale | `Whale.app` | `Naver/Whale` | `Whale Safe Storage` |
 
 Data directories are relative to `~/Library/Application Support`.
 
