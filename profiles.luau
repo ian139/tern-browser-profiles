@@ -41,7 +41,7 @@ local KEY_LINK = "link_profile"
 
 local M = {}
 
--- Registry order is listing order.
+-- Registry order breaks ties in listing order (see `load`).
 M.BROWSERS = {
 	{ key = "brave", name = "Brave", app = "Brave Browser.app", data = "BraveSoftware/Brave-Browser", keychain = "Brave Safe Storage" },
 	{ key = "brave-beta", name = "Brave Beta", app = "Brave Browser Beta.app", data = "BraveSoftware/Brave-Browser-Beta", keychain = "Brave Safe Storage" },
@@ -233,15 +233,16 @@ end
 -- One browser's profiles: its own order when it names one, then any
 -- directories it forgot to list, alphabetically. Entries without an
 -- info_cache table (drift) and unsafe directory names are dropped.
-local function browser_profiles(b: Installed, out: { Profile })
+-- Returns when any of them was last active (seconds; 0 when unknown).
+local function browser_profiles(b: Installed, out: { Profile }): number
 	local ok, text = pcall(tern.fs.read, b.root .. "/Local State", 4 * 1024 * 1024)
 	if not ok then
-		return
+		return 0
 	end
 	local p = profile_section(text)
 	if p == nil or type(p.info_cache) ~= "table" then
 		tern.log.warn("brave-profiles", b.name .. "'s Local State is not the JSON this plugin expects")
-		return
+		return 0
 	end
 	local cache = p.info_cache :: { [string]: any }
 
@@ -270,9 +271,13 @@ local function browser_profiles(b: Installed, out: { Profile })
 	end
 
 	local last = plain(p.last_used)
+	local recent = 0
 	for _, d in dirs do
 		local info = cache[d] :: { [string]: any }
 		local name = plain(info.name)
+		if type(info.active_time) == "number" and info.active_time > recent then
+			recent = info.active_time
+		end
 		table.insert(out, {
 			id = b.key .. "/" .. d,
 			browser = b,
@@ -282,19 +287,33 @@ local function browser_profiles(b: Installed, out: { Profile })
 			last_used = d == last,
 		})
 	end
+	return recent
 end
 
--- Every profile of every installed browser, browsers in registry order. A
--- browser whose Local State is missing or malformed contributes nothing.
+-- Every profile of every installed browser, the most recently used browser
+-- first (registry order on ties), each browser's profiles in its own order.
+-- A browser whose Local State is missing or malformed contributes nothing.
 -- Returns the list and nil, or an empty list and a reason.
 function M.load(): ({ Profile }, string?)
 	local browsers, err = M.installed()
 	if err ~= nil then
 		return {}, err
 	end
+	local groups: { { list: { Profile }, recent: number, rank: number } } = {}
+	for rank, b in browsers do
+		local list: { Profile } = {}
+		local recent = browser_profiles(b, list)
+		table.insert(groups, { list = list, recent = recent, rank = rank })
+	end
+	table.sort(groups, function(x, y)
+		if x.recent ~= y.recent then
+			return x.recent > y.recent
+		end
+		return x.rank < y.rank
+	end)
 	local out: { Profile } = {}
-	for _, b in browsers do
-		browser_profiles(b, out)
+	for _, g in groups do
+		table.move(g.list, 1, #g.list, #out + 1, out)
 	end
 	if #out == 0 then
 		return out, "No profiles were found in the installed browsers"

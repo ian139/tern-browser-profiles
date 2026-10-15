@@ -8,8 +8,9 @@ id remains `brave-profiles`.
 ## Open a profile
 
 Press **⌥⇧B** (`alt+shift+b`) or choose **Open browser profile…** in the
-palette. The picker groups profiles by browser and shows their signed-in
-accounts. It reads fresh profile information when opened, so newly created
+palette. The picker groups profiles by browser, the browser you used most
+recently first, and shows their signed-in accounts. It reads fresh profile
+information when opened, so newly created
 profiles appear without reloading plugins. Direct palette commands named
 **<Browser>: <profile>** open individual profiles without the picker.
 
