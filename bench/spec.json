@@ -1,0 +1,130 @@
+{
+  "home": "home",
+  "keychain": {
+    "Brave Safe Storage": "brave-pass",
+    "Chrome Safe Storage": "chrome-pass",
+    "Chromium Safe Storage": "chromium-pass",
+    "Microsoft Edge Safe Storage": "edge-pass",
+    "Vivaldi Safe Storage": "vivaldi-pass",
+    "Helium Storage Key": "helium-pass"
+  },
+  "browsers": [
+    {
+      "key": "brave", "token": "Brave",
+      "app": "Brave Browser.app", "exe": "Brave Browser", "bundle_id": "com.brave.Browser", "location": "system",
+      "data": "BraveSoftware/Brave-Browser", "keychain": "Brave Safe Storage", "state": "ok",
+      "profiles_order": ["Default", "Profile 1", "Ghost"],
+      "last_used": "Profile 1",
+      "profiles": [
+        {"dir": "Default", "name": "Personal", "account": "personal@brave.test"},
+        {"dir": "Profile 1", "name": "Work", "account": "work@corp.test"},
+        {"dir": "Profile 3", "name": "Brave Lab", "account": ""},
+        {"dir": "../evil", "name": "Evil Escape", "account": "", "hostile": true}
+      ]
+    },
+    {
+      "key": "brave-nightly", "token": "Nightly",
+      "app": "Brave Browser Nightly.app", "exe": "Brave Browser Nightly", "bundle_id": "com.brave.Browser.nightly", "location": "system",
+      "data": "BraveSoftware/Brave-Browser-Nightly", "keychain": "Brave Safe Storage", "state": "ok",
+      "last_used": "Default",
+      "profiles": [{"dir": "Default", "name": "Nightly Tester", "account": ""}]
+    },
+    {
+      "key": "brave-beta", "token": "Beta",
+      "app": "Brave Browser Beta.app", "exe": "Brave Browser Beta", "bundle_id": "com.brave.Browser.beta", "location": "system",
+      "data": "BraveSoftware/Brave-Browser-Beta", "keychain": "Brave Safe Storage", "state": "missing",
+      "profiles": []
+    },
+    {
+      "key": "chrome", "token": "Chrome",
+      "app": "Google Chrome.app", "exe": "Google Chrome", "bundle_id": "com.google.Chrome", "location": "system",
+      "data": "Google/Chrome", "keychain": "Chrome Safe Storage", "state": "ok",
+      "last_used": "Default",
+      "profiles": [
+        {"dir": "Default", "name": "Chrome Main", "account": "ian@gmail.test"},
+        {"dir": "Profile 2", "name": "Chrome Client", "account": "client@agency.test"}
+      ]
+    },
+    {
+      "key": "chrome-beta", "token": "Beta",
+      "app": "Google Chrome Beta.app", "exe": "Google Chrome Beta", "bundle_id": "com.google.Chrome.beta", "location": null,
+      "data": "Google/Chrome Beta", "keychain": "Chrome Safe Storage", "state": "ok",
+      "last_used": "Default",
+      "profiles": [{"dir": "Default", "name": "Beta Ghost", "account": "", "unlaunchable": true}]
+    },
+    {
+      "key": "chrome-canary", "token": "Canary",
+      "app": "Google Chrome Canary.app", "exe": "Google Chrome Canary", "bundle_id": "com.google.Chrome.canary", "location": "system",
+      "data": "Google/Chrome Canary", "keychain": "Chrome Safe Storage", "state": "ok",
+      "last_used": "Default",
+      "profiles": [{"dir": "Default", "name": "Canary Test", "account": ""}]
+    },
+    {
+      "key": "chromium", "token": "Chromium",
+      "app": "Chromium.app", "exe": "Chromium", "bundle_id": "org.chromium.Chromium", "location": "system",
+      "data": "Chromium", "keychain": "Chromium Safe Storage", "state": "ok",
+      "last_used": "Default",
+      "profiles": [{"dir": "Default", "name": "Chromium Dev", "account": ""}]
+    },
+    {
+      "key": "edge", "token": "Edge",
+      "app": "Microsoft Edge.app", "exe": "Microsoft Edge", "bundle_id": "com.microsoft.edgemac", "location": "system",
+      "data": "Microsoft Edge", "keychain": "Microsoft Edge Safe Storage", "state": "ok",
+      "last_used": "Profile 1",
+      "profiles": [
+        {"dir": "Default", "name": "Edge Work", "account": "ian@outlook.test"},
+        {"dir": "Profile 1", "name": "Edge Home", "account": ""}
+      ]
+    },
+    {
+      "key": "edge-beta", "token": "Beta",
+      "app": "Microsoft Edge Beta.app", "exe": "Microsoft Edge Beta", "bundle_id": "com.microsoft.edgemac.Beta", "location": "system",
+      "data": "Microsoft Edge Beta", "keychain": "Microsoft Edge Safe Storage", "state": "malformed",
+      "profiles": []
+    },
+    {
+      "key": "vivaldi", "token": "Vivaldi",
+      "app": "Vivaldi.app", "exe": "Vivaldi", "bundle_id": "com.vivaldi.Vivaldi", "location": "home",
+      "data": "Vivaldi", "keychain": "Vivaldi Safe Storage", "state": "ok",
+      "last_used": "Default",
+      "profiles": [{"dir": "Default", "name": "Vivaldi Daily", "account": ""}]
+    },
+    {
+      "key": "helium", "token": "Helium",
+      "app": "Helium.app", "exe": "Helium", "bundle_id": "net.imput.helium", "location": "system",
+      "data": "net.imput.helium", "keychain": "Helium Storage Key", "state": "ok",
+      "last_used": "Default",
+      "profiles": [{"dir": "Default", "name": "Helium Lite", "account": ""}]
+    }
+  ],
+  "cookies": [
+    {
+      "browser": "chrome", "profile": "Default", "db": "Network/Cookies", "meta_version": 24,
+      "focused_url": "https://app.example.com/dash",
+      "rows": [
+        {"host": ".example.com", "name": "sid", "value": "chrome-sid-123", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 1, "expires": "future"},
+        {"host": "app.example.com", "name": "pref", "value": "dark", "encrypt": false, "secure": 0, "httponly": 0, "samesite": -1, "expires": null},
+        {"host": "api.example.com", "name": "tok", "value": "api-tok", "encrypt": true, "secure": 1, "httponly": 0, "samesite": 0, "expires": "future"},
+        {"host": ".example.com", "name": "old", "value": "stale", "encrypt": true, "secure": 1, "httponly": 0, "samesite": 1, "expires": "past"},
+        {"host": ".other.test", "name": "other", "value": "nope", "encrypt": true, "secure": 1, "httponly": 0, "samesite": 1, "expires": "future"}
+      ],
+      "expected": {"sid": "chrome-sid-123", "pref": "dark", "tok": "api-tok"}
+    },
+    {
+      "browser": "brave", "profile": "Profile 1", "db": "Cookies", "meta_version": 23,
+      "focused_url": "https://app.example.com/dash",
+      "rows": [
+        {"host": ".example.com", "name": "bsid", "value": "brave-work-sid", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 2, "expires": "future"}
+      ],
+      "expected": {"bsid": "brave-work-sid"}
+    },
+    {
+      "browser": "edge", "profile": "Default", "db": "Network/Cookies", "meta_version": 24,
+      "focused_url": "https://app.example.com/dash",
+      "rows": [
+        {"host": ".example.com", "name": "esid", "value": "edge-sid", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 1, "expires": "future"}
+      ],
+      "expected": {"esid": "edge-sid"}
+    }
+  ]
+}
