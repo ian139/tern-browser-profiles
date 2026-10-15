@@ -100,7 +100,6 @@
   "cookies": [
     {
       "browser": "chrome", "profile": "Default", "db": "Network/Cookies", "meta_version": 24,
-      "focused_url": "https://app.example.com/dash",
       "rows": [
         {"host": ".example.com", "name": "sid", "value": "chrome-sid-123", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 1, "expires": "future"},
         {"host": "app.example.com", "name": "pref", "value": "dark", "encrypt": false, "secure": 0, "httponly": 0, "samesite": -1, "expires": null},
@@ -108,11 +107,10 @@
         {"host": ".example.com", "name": "old", "value": "stale", "encrypt": true, "secure": 1, "httponly": 0, "samesite": 1, "expires": "past"},
         {"host": ".other.test", "name": "other", "value": "nope", "encrypt": true, "secure": 1, "httponly": 0, "samesite": 1, "expires": "future"}
       ],
-      "expected": {"sid": "chrome-sid-123", "pref": "dark", "tok": "api-tok"}
+      "expected": {"sid": "chrome-sid-123", "pref": "dark", "tok": "api-tok", "other": "nope"}
     },
     {
       "browser": "brave", "profile": "Profile 1", "db": "Cookies", "meta_version": 23,
-      "focused_url": "https://app.example.com/dash",
       "rows": [
         {"host": ".example.com", "name": "bsid", "value": "brave-work-sid", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 2, "expires": "future"}
       ],
@@ -120,11 +118,34 @@
     },
     {
       "browser": "edge", "profile": "Default", "db": "Network/Cookies", "meta_version": 24,
-      "focused_url": "https://app.example.com/dash",
       "rows": [
-        {"host": ".example.com", "name": "esid", "value": "edge-sid", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 1, "expires": "future"}
+        {"host": ".example.com", "name": "esid", "value": "edge-sid", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 1, "expires": "future"},
+        {"host": ".mail.test", "name": "mail", "value": "edge-mail", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 1, "expires": "future"}
       ],
-      "expected": {"esid": "edge-sid"}
+      "expected": {"esid": "edge-sid", "mail": "edge-mail"}
+    },
+    {
+      "browser": "vivaldi", "profile": "Default", "db": "Network/Cookies", "meta_version": 24,
+      "rows": [
+        {"host": ".example.com", "name": "vold", "value": "vivaldi-expired", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 1, "expires": "past"}
+      ],
+      "expected": {}
+    },
+    {
+      "browser": "helium", "profile": "Default", "db": "Network/Cookies", "meta_version": 24,
+      "rows": [
+        {"host": "app.example.com", "name": "hpref", "value": "light", "encrypt": false, "secure": 0, "httponly": 0, "samesite": -1, "expires": "future"}
+      ],
+      "expected": {"hpref": "light"}
+    },
+    {
+      "browser": "chromium", "profile": "Default", "db": "Network/Cookies", "meta_version": 24,
+      "keychain_override": "not-the-chromium-pass",
+      "fails": true,
+      "rows": [
+        {"host": ".example.com", "name": "csid", "value": "chromium-sid", "encrypt": true, "secure": 1, "httponly": 1, "samesite": 1, "expires": "future"}
+      ],
+      "expected": {}
     }
   ]
 }

@@ -158,9 +158,10 @@ def encrypt(crypt, key, plaintext):
 def make_cookies(data, browser, cookies, keychain, crypt):
     path = data / cookies["profile"] / cookies["db"]
     path.parent.mkdir(parents=True, exist_ok=True)
-    key = hashlib.pbkdf2_hmac(
-        "sha1", keychain[browser["keychain"]].encode(), b"saltysalt", 1003, 16
-    )
+    # "keychain_override" encrypts with another password, as a newer scheme
+    # or a mismatched Keychain item would: nothing decrypts.
+    password = cookies.get("keychain_override") or keychain[browser["keychain"]]
+    key = hashlib.pbkdf2_hmac("sha1", password.encode(), b"saltysalt", 1003, 16)
     database = sqlite3.connect(path)
     try:
         with database:
