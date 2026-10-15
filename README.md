@@ -88,7 +88,11 @@ The exporter can also be invoked from the plugin directory:
 ```
 
 It prints a JSON cookie array to stdout; `--summary` prints only per-domain
-counts, never cookie values. Errors go to stderr with a nonzero exit status.
+counts and how many cookies could not be decrypted, never cookie values.
+Errors go to stderr with a nonzero exit status, including when the site has
+encrypted cookies but none decrypt with the browser's Keychain key (a wrong
+key would otherwise import only the few unencrypted cookies and look like a
+sign-in that did nothing).
 
 ## The block
 

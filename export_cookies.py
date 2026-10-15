@@ -27,6 +27,7 @@ import sqlite3
 import subprocess
 import sys
 import tempfile
+import time
 
 EPOCH_DELTA = 11644473600  # seconds from 1601-01-01 to 1970-01-01
 SAMESITE = {0: "None", 1: "Lax", 2: "Strict"}  # -1 (unspecified) is omitted
@@ -66,6 +67,24 @@ def decrypt(key, blob):
     if status != 0:
         return None
     return out.raw[: moved.value]
+
+
+def decrypted(key, enc, host, hashed):
+    """A cookie's value from its `encrypted_value`, or None when it cannot be
+    decrypted with `key` (another scheme, a wrong key, a foreign host)."""
+    if enc[:3] != b"v10":
+        return None
+    plain = decrypt(key, enc[3:])
+    if plain is None:
+        return None
+    if hashed:
+        if plain[:32] != hashlib.sha256(host.encode()).digest():
+            return None
+        plain = plain[32:]
+    try:
+        return plain.decode()
+    except UnicodeDecodeError:
+        return None
 
 
 def database(data, profile):
@@ -133,45 +152,46 @@ def main():
         db.close()
 
     rows = [r for r in rows if in_site(r[0], site)]
-    import time
     now = time.time()
     cookies = []
+    undecryptable = decrypted_count = 0
     for host, name, value, enc, path, expires_utc, secure, httponly, samesite, has_expires in rows:
-        if enc:
-            if enc[:3] != b"v10":
-                continue
-            plain = decrypt(key, enc[3:])
-            if plain is None:
-                continue
-            if hashed:
-                if plain[:32] != hashlib.sha256(host.encode()).digest():
-                    continue
-                plain = plain[32:]
-            try:
-                value = plain.decode()
-            except UnicodeDecodeError:
-                continue
         expires = None
         if has_expires and expires_utc:
             expires = expires_utc / 1e6 - EPOCH_DELTA
             if expires <= now:
                 continue
+        if enc:
+            value = decrypted(key, enc, host, hashed)
+            if value is None:
+                undecryptable += 1
+                continue
+            decrypted_count += 1
         cookie = {
             "name": name, "value": value, "domain": host, "path": path or "/",
             "httpOnly": bool(httponly), "secure": bool(secure),
         }
         if expires is not None:
             cookie["expires"] = int(expires)
-        site = SAMESITE.get(samesite)
-        if site is not None and not (site == "None" and not secure):
-            cookie["sameSite"] = site
+        same_site = SAMESITE.get(samesite)
+        if same_site is not None and not (same_site == "None" and not secure):
+            cookie["sameSite"] = same_site
         cookies.append(cookie)
+
+    # A wrong Keychain item or a newer encryption scheme decrypts nothing;
+    # importing only the few plain cookies would look like a sign-in that
+    # silently did not work, so say so instead.
+    if undecryptable and not decrypted_count:
+        fail(
+            "none of the %d live %s cookies could be decrypted with the %s key"
+            % (undecryptable, site, args.keychain)
+        )
 
     if args.summary:
         counts = {}
         for c in cookies:
             counts[c["domain"]] = counts.get(c["domain"], 0) + 1
-        json.dump({"total": len(cookies), "skipped": len(rows) - len(cookies), "domains": counts}, sys.stdout)
+        json.dump({"total": len(cookies), "undecryptable": undecryptable, "domains": counts}, sys.stdout)
     else:
         json.dump(cookies, sys.stdout)
 
