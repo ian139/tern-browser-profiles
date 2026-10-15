@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Prints one Brave profile's live cookies as a JSON array on stdout.
+"""Print one Chromium browser profile's live cookies as JSON on stdout.
 
-usage: export_cookies.py PROFILE_DIR HOST [--summary]
+usage: export_cookies.py --data DATA --keychain SERVICE PROFILE_DIR HOST [--summary]
 
-Reads the profile's `Cookies` SQLite file (a copy, since Brave keeps it
-locked) and decrypts the values with the "Brave Safe Storage" Keychain key;
-macOS asks the user to allow that Keychain read. Nothing is written to disk
-except a temporary copy of the database, which is removed on exit.
+DATA is a relative directory under ~/Library/Application Support; SERVICE is
+the browser's Safe Storage Keychain item. Reads the profile's `Cookies`
+SQLite file (a copy, since the browser keeps it locked) and decrypts values
+with that Keychain key; macOS asks the user to allow the read. Nothing is
+written to disk except a temporary database copy, removed on exit.
 
 Only cookies of HOST's site are exported (HOST and its parent/sibling
 subdomains: ai.example.com -> everything under example.com).
@@ -15,6 +16,7 @@ Each cookie is {name, value, domain, path, expires?, httpOnly, secure,
 sameSite?} -- the shape of Tern's browser `setCookie` op. With --summary
 only the per-domain cookie counts are printed, never a value.
 """
+import argparse
 import ctypes
 import hashlib
 import json
@@ -26,7 +28,6 @@ import subprocess
 import sys
 import tempfile
 
-BASE = os.path.expanduser("~/Library/Application Support/BraveSoftware/Brave-Browser")
 EPOCH_DELTA = 11644473600  # seconds from 1601-01-01 to 1970-01-01
 SAMESITE = {0: "None", 1: "Lax", 2: "Strict"}  # -1 (unspecified) is omitted
 HOST_HASH_META_VERSION = 24  # from here the plaintext is prefixed by sha256(host_key)
@@ -47,13 +48,13 @@ def fail(msg):
     sys.exit(1)
 
 
-def keychain_key():
+def keychain_key(service):
     r = subprocess.run(
-        ["/usr/bin/security", "find-generic-password", "-w", "-s", "Brave Safe Storage"],
+        ["/usr/bin/security", "find-generic-password", "-w", "-s", service],
         capture_output=True, text=True,
     )
     if r.returncode != 0:
-        fail("Keychain refused the Brave Safe Storage key (%d): %s" % (r.returncode, r.stderr.strip()))
+        fail("Keychain refused the %s key (%d): %s" % (service, r.returncode, r.stderr.strip()))
     return hashlib.pbkdf2_hmac("sha1", r.stdout.strip().encode(), b"saltysalt", 1003, 16)
 
 
@@ -67,12 +68,13 @@ def decrypt(key, blob):
     return out.raw[: moved.value]
 
 
-def database(profile):
+def database(data, profile):
+    base = os.path.expanduser("~/Library/Application Support")
     for rel in ("Network/Cookies", "Cookies"):
-        path = os.path.join(BASE, profile, rel)
+        path = os.path.join(base, data, profile, rel)
         if os.path.isfile(path):
             return path
-    fail("no Cookies database in Brave profile %r" % profile)
+    fail("no Cookies database in %s profile %r" % (data, profile))
 
 
 def site_of(host):
@@ -93,18 +95,27 @@ def in_site(cookie_host, site):
 
 
 def main():
-    args = sys.argv[1:]
-    summary = "--summary" in args
-    args = [a for a in args if a != "--summary"]
-    if (
-        len(args) != 2
-        or not re.fullmatch(r"[A-Za-z0-9 _-]+", args[0])
-        or not re.fullmatch(r"[A-Za-z0-9.-]+", args[1])
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data", required=True, help="browser data directory under ~/Library/Application Support")
+    parser.add_argument("--keychain", required=True, help="browser Keychain service")
+    parser.add_argument("profile", metavar="PROFILE_DIR")
+    parser.add_argument("host", metavar="HOST")
+    parser.add_argument("--summary", action="store_true", help="print counts instead of cookie values")
+    args = parser.parse_args()
+    if os.path.isabs(args.data) or any(
+        part in (".", "..") or not re.fullmatch(r"[A-Za-z0-9 ._-]+", part)
+        for part in args.data.split("/")
     ):
-        fail("usage: export_cookies.py PROFILE_DIR HOST [--summary]")
-    site = site_of(args[1])
-    src = database(args[0])
-    key = keychain_key()
+        parser.error("--data must be a relative path of safe components, without '.' or '..'")
+    if not re.fullmatch(r"[A-Za-z0-9 ._-]+", args.keychain):
+        parser.error("--keychain must contain only letters, digits, spaces, '.', '_' or '-'")
+    if not re.fullmatch(r"[A-Za-z0-9 _-]+", args.profile):
+        parser.error("PROFILE_DIR must contain only letters, digits, spaces, '_' or '-'")
+    if not re.fullmatch(r"[A-Za-z0-9.-]+", args.host):
+        parser.error("HOST must contain only letters, digits, '.' or '-'")
+    site = site_of(args.host)
+    src = database(args.data, args.profile)
+    key = keychain_key(args.keychain)
 
     with tempfile.TemporaryDirectory() as tmp:
         copy = os.path.join(tmp, "Cookies")
@@ -156,7 +167,7 @@ def main():
             cookie["sameSite"] = site
         cookies.append(cookie)
 
-    if summary:
+    if args.summary:
         counts = {}
         for c in cookies:
             counts[c["domain"]] = counts.get(c["domain"], 0) + 1

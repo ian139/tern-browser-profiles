@@ -1,9 +1,9 @@
 --!strict
--- The `profiles` block: the machine's Brave profiles as a list, launched
--- from Tern.
+-- The `profiles` block: every profile of every installed Chromium browser as
+-- a list, launched from Tern.
 --
--- Keys: ↑/↓ (or k/j) move, Home/End jump, ⏎ (or double-click) open Brave
--- in the profile, l routes Tern's http(s) link clicks to it, r reloads.
+-- Keys: ↑/↓ (or k/j) move, Home/End jump, ⏎ (or double-click) open the
+-- profile in its browser, l routes Tern's http(s) link clicks to it, r reloads.
 
 local profiles = require("./profiles")
 local ui = tern.ui
@@ -14,12 +14,12 @@ type State = {
 	cx: BlockCx,
 	list: { profiles.Profile },
 	problem: string?,
-	cursor: string?, -- selected profile directory
+	cursor: string?, -- selected profile id
 }
 
 local function index_of(state: State): number
 	for i, p in state.list do
-		if p.dir == state.cursor then
+		if p.id == state.cursor then
 			return i
 		end
 	end
@@ -29,7 +29,7 @@ end
 local function move(state: State, to: number)
 	local p = state.list[math.clamp(to, 1, math.max(1, #state.list))]
 	if p then
-		state.cursor = p.dir
+		state.cursor = p.id
 	end
 end
 
@@ -44,13 +44,14 @@ local function pane_runs(pane: number): boolean
 end
 
 local function launch(cx: BlockCx, pane: number, p: profiles.Profile)
-	local spawn_error = profiles.launch(p.dir, nil, function(r: ProcessResult)
+	local what = p.browser.name .. " did not open " .. p.name
+	local spawn_error = profiles.launch(p, nil, function(r: ProcessResult)
 		if r.status ~= 0 and pane_runs(pane) then
-			cx:toast("error", "Brave did not open " .. p.name, "open exited with status " .. r.status)
+			cx:toast("error", what, "open exited with status " .. r.status)
 		end
 	end)
 	if spawn_error then
-		cx:toast("error", "Brave did not open " .. p.name, spawn_error)
+		cx:toast("error", what, spawn_error)
 	end
 end
 
@@ -61,12 +62,16 @@ local function toggle_link(state: State, cx: BlockCx)
 	end
 	-- Read the store, not a cached copy: any window (or this block) may
 	-- have changed it since the last reload.
-	if profiles.link_dir() == p.dir then
-		profiles.set_link_dir(nil)
+	if profiles.link_id() == p.id then
+		profiles.set_link_id(nil)
 		cx:toast("info", "Links open in Tern again")
 	else
-		profiles.set_link_dir(p.dir)
-		cx:toast("success", "Links open in " .. p.name, "Click a link with ⌘, ⌥, ⇧ or ⌃ to open it in Tern")
+		profiles.set_link_id(p.id)
+		cx:toast(
+			"success",
+			"Links open in " .. p.browser.name .. ": " .. p.name,
+			"Click a link with ⌘, ⌥, ⇧ or ⌃ to open it in Tern"
+		)
 	end
 end
 
@@ -75,30 +80,29 @@ local function reload(state: State)
 	state.cursor = nil
 	local first = state.list[1]
 	if first then
-		state.cursor = first.dir
+		state.cursor = first.id
 	end
 end
 
 local function problem_view(text: string): Node
-	return ui.card({ ui.span("Brave Profiles", "strong") }, {
+	return ui.card({ ui.span("Browser Profiles", "strong") }, {
 		ui.md(text .. "  Press **r** to look again."),
 	})
 end
 
-local function list_view(state: State): Node
-	local linked = profiles.link_dir()
+local function list_view(state: State, linked: string?): Node
 	local items: { Item } = {}
 	for _, p in state.list do
 		local label: { Span | string } = { ui.span(p.name) }
 		if p.last_used then
 			table.insert(label, ui.span("  last used", "dim"))
 		end
-		if linked == p.dir then
+		if linked == p.id then
 			table.insert(label, ui.span("  ← links", "success"))
 		end
 		table.insert(items, {
 			label = label,
-			detail = { ui.span(p.dir, "muted path") },
+			detail = { ui.span(p.browser.name, "muted"), ui.span("  " .. p.dir, "muted path") },
 			value = if p.account ~= "" then { ui.span(p.account, "muted") } else nil,
 		})
 	end
@@ -106,23 +110,23 @@ local function list_view(state: State): Node
 	local kids = list.c or {}
 	for i, p in state.list do
 		local cp: { [string]: any } = kids[i].p or {}
-		cp.key = p.dir
+		cp.key = p.id
 		kids[i].p = cp
 	end
 	local lp: { [string]: any } = list.p or {}
 	lp.key = "list"
 	lp.selected = if state.cursor then LIST_ID .. state.cursor else nil
-	lp.empty = { ui.span("Brave reports no profiles.", "muted") }
+	lp.empty = { ui.span("No browser profiles found.", "muted") }
 	lp.max = { lines = math.max(4, state.cx.rows - 6) }
 	list.p = lp
 	return list
 end
 
-local function dock_view(state: State): Node
+local function dock_view(state: State, linked: string?): Node
 	local status: { Span | string } = { ui.span(#state.list .. " profiles", "strong") }
-	local linked = profiles.find(state.list, profiles.link_dir())
-	if linked then
-		table.insert(status, ui.span("  links → " .. linked.name, "success"))
+	local target = profiles.find(state.list, linked)
+	if target then
+		table.insert(status, ui.span("  links → " .. target.browser.name .. ": " .. target.name, "success"))
 	end
 	return ui.col({
 		ui.lines({
@@ -140,12 +144,15 @@ local def: BlockDef<State> = {
 	end,
 
 	title = function(_state: State): string?
-		return "Brave Profiles"
+		return "Browser Profiles"
 	end,
 
 	view = function(state: State, _cx: BlockCx): BlockView
-		local main = if state.problem ~= nil then problem_view(state.problem) else list_view(state)
-		return { main = ui.col({ main }), dock = if state.problem == nil then dock_view(state) else nil }
+		if state.problem ~= nil then
+			return { main = ui.col({ problem_view(state.problem) }) }
+		end
+		local linked = profiles.link_id()
+		return { main = ui.col({ list_view(state, linked) }), dock = dock_view(state, linked) }
 	end,
 
 	key = function(state: State, key: Key, cx: BlockCx): boolean?

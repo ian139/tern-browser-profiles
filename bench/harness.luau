@@ -233,6 +233,10 @@ local function real(path: string, write: boolean?): string
 		return if W.apps then ROOT .. path else ROOT .. "/__noapps__" .. path
 	end
 	if path == HOME or string.sub(path, 1, #HOME + 1) == HOME .. "/" then
+		local user_apps = HOME .. "/Applications"
+		if not W.apps and (path == user_apps or string.sub(path, 1, #user_apps + 1) == user_apps .. "/") then
+			return ROOT .. "/__noapps__" .. path
+		end
 		return path
 	end
 	if path == DATA or string.sub(path, 1, #DATA + 1) == DATA .. "/" then
