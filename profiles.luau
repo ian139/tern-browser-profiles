@@ -263,21 +263,25 @@ local function browser_profiles(b: Installed, out: { Profile }): number
 		take(d)
 	end
 
-	local last = plain(p.last_used)
-	local recent = 0
+	-- The last used profile is the most recently active one; `last_used`
+	-- (which Chrome does not always write) only counts when none has a time.
+	local recent, recent_dir = 0, plain(p.last_used)
+	for _, d in dirs do
+		local t = (cache[d] :: { [string]: any }).active_time
+		if type(t) == "number" and t > recent then
+			recent, recent_dir = t, d
+		end
+	end
 	for _, d in dirs do
 		local info = cache[d] :: { [string]: any }
 		local name = plain(info.name)
-		if type(info.active_time) == "number" and info.active_time > recent then
-			recent = info.active_time
-		end
 		table.insert(out, {
 			id = b.key .. "/" .. d,
 			browser = b,
 			dir = d,
 			name = if name ~= "" then name else d,
 			account = plain(info.user_name),
-			last_used = d == last,
+			last_used = d == recent_dir,
 		})
 	end
 	return recent
