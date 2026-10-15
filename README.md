@@ -33,10 +33,9 @@ Supported browsers and their storage locations are:
 | Edge Dev | `Microsoft Edge Dev.app` | `Microsoft Edge Dev` | `Microsoft Edge Safe Storage` |
 | Edge Canary | `Microsoft Edge Canary.app` | `Microsoft Edge Canary` | `Microsoft Edge Safe Storage` |
 | Vivaldi | `Vivaldi.app` | `Vivaldi` | `Vivaldi Safe Storage` |
-| Helium | `Helium.app` | `net.imput.helium` | `Helium Storage Key` (assumed) |
+| Helium | `Helium.app` | `net.imput.helium` | `Helium Storage Key` |
 
-Data directories are relative to `~/Library/Application Support`. Helium's
-Keychain item name is an assumption; cookie import needs that item to exist.
+Data directories are relative to `~/Library/Application Support`.
 
 ## Route links
 
@@ -115,3 +114,14 @@ Or load it in place and reload on every save:
 ```sh
 tern plugin link "$(pwd)/brave-profiles"
 ```
+
+## Development
+
+`bash autoresearch.sh` (needs `lune` and `python3`) builds a fake macOS tree
+of Chromium browsers (`bench/make_fixtures.py` from `bench/spec.json`), loads
+both plugin halves into a mocked Tern (`bench/harness.luau`) and prints a
+PASS/FAIL line per behaviour check plus `METRIC` lines: `score` is ten times
+the passed check weight minus an op-weighted I/O cost of the hot paths
+(window start, palette availability, link clicks, picker and block). The
+cookie exporter runs for real against fixture databases through
+`bench/py_shim.py`, which fakes the Keychain. Nothing is launched.
