@@ -4,7 +4,6 @@
 
 local profiles = require("./profiles")
 
-local KIND = "brave-profiles.profiles"
 local GROUP = "Browser Profiles"
 
 -- Command ids are letters, digits, `_` and `-`, unique per command:
@@ -148,20 +147,6 @@ local function import_cookies(cx: WindowCx, p: profiles.Profile, target: any, ur
 	end
 end
 
--- Opens the profiles block beside the focused pane, or focuses the one
--- already open in this window.
-local function open_block(cx: WindowCx)
-	for _, pane in cx.session:panes() do
-		if pane.block == KIND then
-			cx.layout:focus(pane.pane)
-			return
-		end
-	end
-	if cx:new_block(KIND, nil, "beside") == nil then
-		cx:toast("error", "Browser Profiles is not loaded on this host", "Install the plugin where your panes run.")
-	end
-end
-
 tern.command({
 	id = "switch",
 	title = "Open browser profile…",
@@ -253,14 +238,6 @@ tern.command({
 			end
 		end)
 	end,
-})
-
-tern.command({
-	id = "profiles",
-	title = "Open browser profiles block",
-	icon = "compass",
-	group = GROUP,
-	run = open_block,
 })
 
 -- One command per profile, registered when the window starts, that opens it

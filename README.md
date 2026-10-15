@@ -82,9 +82,8 @@ counts, never cookie values. Errors go to stderr with a nonzero exit status.
 
 ## The block
 
-Choose **Open browser profiles block** to keep a **Browser Profiles** list
-in a pane (one per window). It groups profiles by browser and displays
-signed-in accounts.
+Choose **New Browser Profiles block** in the palette to keep a list of every
+profile in a pane. It shows each profile's browser and signed-in account.
 
 - `↑` / `↓` or `k` / `j`: move the selection.
 - `Home` / `End`: jump to the first or last profile.
