@@ -14,8 +14,9 @@ local M = {}
 
 -- Browser blocks this window opened, so links clicked inside one stay there.
 local opened: { [number]: boolean } = {}
--- Source profiles whose sign-ins this window is copying now.
-local copying: { [string]: boolean } = {}
+-- Source profiles whose sign-ins this window is copying now, each with the
+-- pages asked for meanwhile, in order; they all load once the copy is done.
+local copying: { [string]: { string } } = {}
 
 -- Runs browser op `op`; `done` gets its `ok` table, or nil and a reason,
 -- and the fresh cx (nil when the window is gone). Error envelopes, failed
@@ -131,6 +132,8 @@ end
 -- Copies its sign-ins first when they were never copied, or when `recopy`
 -- asks to copy them again; the page loads only after every cookie landed.
 -- Failures are toasts; a block opened for a failed copy is closed again.
+-- Opens asked for while that profile's copy runs wait for it, each in a
+-- block of its own, and load only when it succeeds.
 function M.open(cx: WindowCx, p: profiles.Profile, url: string?, recopy: boolean?)
 	local target = url or START
 	local who = p.browser.name .. ": " .. p.name
@@ -146,8 +149,10 @@ function M.open(cx: WindowCx, p: profiles.Profile, url: string?, recopy: boolean
 		end)
 		return
 	end
-	if copying[p.id] then
-		cx:toast("info", "Already copying sign-ins from " .. who)
+	local waiting = copying[p.id]
+	if waiting ~= nil then
+		table.insert(waiting, target)
+		cx:toast("info", "Already copying sign-ins from " .. who, "The page opens once they are in")
 		return
 	end
 	if not tern.fs.exists(p.browser.root .. "/" .. p.dir) then
@@ -155,7 +160,7 @@ function M.open(cx: WindowCx, p: profiles.Profile, url: string?, recopy: boolean
 		return
 	end
 	local failed = "Could not copy sign-ins from " .. who
-	copying[p.id] = true
+	copying[p.id] = { target }
 	cx:toast("info", "Copying sign-ins from " .. who .. " into Tern", "macOS may ask to allow the " .. p.browser.keychain .. " Keychain item")
 	local spawn_error = profiles.export_cookies(p, nil, function(cookies, export_err, export_cx)
 		if cookies == nil or export_cx == nil then
@@ -174,6 +179,7 @@ function M.open(cx: WindowCx, p: profiles.Profile, url: string?, recopy: boolean
 				return
 			end
 			set_cookies(open_cx, block, cookies, function(set_err, set_cx)
+				local targets = copying[p.id] or { target }
 				copying[p.id] = nil
 				if set_cx == nil then
 					return
@@ -190,11 +196,21 @@ function M.open(cx: WindowCx, p: profiles.Profile, url: string?, recopy: boolean
 					if #cookies > 0 then "Copied sign-ins from " .. who else who .. " had no sign-ins to copy",
 					if #cookies > 0 then "Copied " .. #cookies .. " cookies into its own Tern browser" else nil
 				)
-				call(set_cx, { op = "goto", block = block, url = target }, function(ok, goto_err, goto_cx)
+				local first = targets[1]
+				call(set_cx, { op = "goto", block = block, url = first }, function(ok, goto_err, goto_cx)
 					if ok == nil and goto_cx ~= nil then
-						goto_cx:toast("error", "Tern's browser did not load " .. target, goto_err)
+						goto_cx:toast("error", "Tern's browser did not load " .. first, goto_err)
 					end
 				end)
+				-- Pages asked for while copying open in blocks of their own, on the
+				-- now-copied store.
+				for i = 2, #targets do
+					open_block(set_cx, p, targets[i], function(more, more_err, more_cx)
+						if more == nil and more_cx ~= nil then
+							more_cx:toast("error", "Tern's browser did not open " .. who, more_err)
+						end
+					end)
+				end
 			end)
 		end)
 	end)
