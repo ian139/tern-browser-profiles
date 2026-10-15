@@ -1973,13 +1973,17 @@ check("links picker opens plain clicks inside Tern in that profile", 4, function
 	if not run_command(vm, "links") or #W.picks == 0 then
 		return false
 	end
+	-- Two plain clicks before any exporter/Keychain/cookie callback settles:
+	-- both pages open in the profile's store, after one export.
 	local parts = 0
-	local res = click(vm, "https://example.org/a", NO_MODS)
-	if claimed(res) and first_open_ok(e, "https://example.org/a") then
+	local ra = route_link("https://example.org/a", TERMINAL_PANE, NO_MODS)
+	local rb = route_link("https://example.org/b", TERMINAL_PANE, NO_MODS)
+	drain()
+	if claimed(ra) and claimed(rb) and first_open_ok(e, "https://example.org/a") and signed_in_at(e, "https://example.org/b") then
 		parts += 1
 	end
-	res = click(vm, "https://example.org/b", NO_MODS)
-	if claimed(res) and python_runs() == 1 and signed_in_at(e, "https://example.org/b") and error_toasts() == 0 then
+	local res = click(vm, "https://example.org/c", NO_MODS)
+	if claimed(res) and python_runs() == 1 and signed_in_at(e, "https://example.org/c") and error_toasts() == 0 then
 		parts += 1
 	end
 	return parts / 2
