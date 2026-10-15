@@ -1,0 +1,13 @@
+schema = 1
+id = "brave-profiles"
+name = "Brave Profiles"
+version = "0.1.0"
+description = "Your Brave profiles in Tern: a launcher block, per-profile palette commands, link routing and cookie import into Tern's browser."
+icon = "compass"
+host = "host.luau"
+window = "window.luau"
+
+[[blocks]]
+id = "profiles"
+title = "Brave Profiles"
+icon = "compass"
