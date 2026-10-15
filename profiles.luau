@@ -185,51 +185,37 @@ local function skip_value(s: string, i: number): number?
 	return (string.find(s, "[,}%]]", i))
 end
 
--- The raw JSON text of top-level member `key` of the object `s`, or nil.
--- Local State is mostly unrelated blobs (variation seeds and the like);
--- slicing out the one member keeps them from being decoded at all.
-local function member(s: string, key: string): string?
-	local _, e = string.find(s, "^%s*{")
-	if e == nil then
-		return nil
-	end
-	local i = e + 1
-	while true do
-		local k = string.find(s, "%S", i)
-		if k == nil or string.byte(s, k) ~= 34 then
-			return nil
-		end
-		local kend = skip_value(s, k)
-		if kend == nil then
-			return nil
-		end
-		local _, colon = string.find(s, "^%s*:%s*", kend)
-		if colon == nil then
-			return nil
-		end
-		local vend = skip_value(s, colon + 1)
-		if vend == nil then
-			return nil
-		end
-		if string.sub(s, k + 1, kend - 2) == key then
-			return string.sub(s, colon + 1, vend - 1)
-		end
-		local _, comma = string.find(s, "^%s*,", vend)
-		if comma == nil then
-			return nil
-		end
-		i = comma + 1
-	end
-end
-
 -- The `profile` object of a Local State text, or nil when it has none.
+-- Local State is mostly unrelated data (variation seeds, per-feature state)
+-- that is slower to walk or decode than to skip, so each `"profile":{`
+-- object is sliced out and decoded alone until one holds an `info_cache`
+-- table; other members nest "profile" keys of their own (`legacy.profile`),
+-- which that test rejects. A file this misses is decoded whole.
 local function profile_section(text: string): { [string]: any }?
-	local raw = member(text, "profile")
-	local ok, v = pcall(tern.json.decode, raw or text)
-	if ok and raw == nil and type(v) == "table" then
-		v = (v :: { [string]: any }).profile
+	local from = 1
+	while true do
+		-- A plain search is far faster than a pattern over the whole text.
+		local at = string.find(text, '"profile"', from, true)
+		if at == nil then
+			break
+		end
+		from = at + 9
+		local _, brace = string.find(text, "^%s*:%s*{", from)
+		if brace == nil then
+			continue
+		end
+		local stop = skip_value(text, brace)
+		if stop == nil then
+			break
+		end
+		local ok, v = pcall(tern.json.decode, string.sub(text, brace, stop - 1))
+		if ok and type(v) == "table" and type((v :: { [string]: any }).info_cache) == "table" then
+			return v :: { [string]: any }
+		end
 	end
-	return if ok and type(v) == "table" then v :: { [string]: any } else nil
+	local ok, v = pcall(tern.json.decode, text)
+	local p = if ok and type(v) == "table" then (v :: { [string]: any }).profile else nil
+	return if type(p) == "table" then p :: { [string]: any } else nil
 end
 
 -- One browser's profiles: its own order when it names one, then any
