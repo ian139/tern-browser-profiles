@@ -1,12 +1,14 @@
 --!strict
 -- The window half: the profile switcher, a palette command per profile, the
--- link-routing picker, cookie import, and link routing.
+-- link-routing picker, copying sign-ins again, and link routing. Every one
+-- opens the profile in its own Tern browser (see browser.luau).
 
 local profiles = require("./profiles")
+local browser = require("./browser")
 
 -- Read once when the window starts, for the per-profile commands and for how
 -- commands name the browsers: someone whose profiles all live in Chrome sees
--- "Chrome: Open profile…", never a word about other browsers.
+-- "Chrome: Open profile in Tern…", never a word about other browsers.
 local startup, startup_err = profiles.load()
 if startup_err ~= nil then
 	tern.log.warn("brave-profiles", startup_err)
@@ -44,19 +46,6 @@ local function account_suffix(p: profiles.Profile): string
 	return if p.account ~= "" then " · " .. p.account else ""
 end
 
--- Opens `p`, reporting failures through toasts.
-local function launch(cx: WindowCx, p: profiles.Profile)
-	local what = p.browser.name .. " did not open " .. p.name
-	local spawn_error = profiles.launch(p, nil, function(r: ProcessResult, cb_cx: WindowCx?)
-		if r.status ~= 0 and cb_cx then
-			cb_cx:toast("error", what, "open exited with status " .. r.status)
-		end
-	end)
-	if spawn_error then
-		cx:toast("error", what, spawn_error)
-	end
-end
-
 -- The profiles, read now, or nil after telling the user why there are none.
 local function load_or_explain(cx: WindowCx): { profiles.Profile }?
 	local list, err = profiles.load()
@@ -92,7 +81,7 @@ local function profile_items(list: { profiles.Profile }, current: string?): { Pi
 end
 
 -- Asks for one of `list` and calls `chosen` with a fresh cx and it; a
--- dismissed picker does nothing.
+-- dismissed picker (or a closed window) does nothing.
 local function pick_profile(
 	cx: WindowCx,
 	list: { profiles.Profile },
@@ -102,78 +91,26 @@ local function pick_profile(
 	cx:pick({ items = profile_items(list, nil), placeholder = placeholder, icon = "compass" })
 		:next(function(item: PickItem?, _e: string?, pick_cx: WindowCx?)
 			local p = if item ~= nil then profiles.find(list, item.id) else nil
-			if p ~= nil then
-				chosen(pick_cx or cx, p)
+			if p ~= nil and pick_cx ~= nil then
+				chosen(pick_cx, p)
 			end
 		end)
 end
 
--- Sets `cookies` one at a time through browser block `block`'s cookie store,
--- then calls `finish(imported, rejected, cx)`. One at a time keeps the window
--- from being flooded with thousands of pending native calls.
-local function set_cookies(cx: WindowCx, block: number, cookies: { any }, finish: (number, number, WindowCx) -> ())
-	local imported, rejected = 0, 0
-	local function step(i: number, step_cx: WindowCx)
-		local cookie = cookies[i]
-		if cookie == nil then
-			finish(imported, rejected, step_cx)
-			return
-		end
-		step_cx.browser:call({ op = "setCookie", block = block, cookie = cookie }):next(function(res, e, next_cx)
-			if res ~= nil and res.ok ~= nil and e == nil then
-				imported += 1
-			else
-				rejected += 1
-			end
-			step(i + 1, next_cx or step_cx)
-		end)
-	end
-	step(1, cx)
-end
-
--- Copies the cookies of the site `target` (a Tern browser block) shows from
--- profile `p` into Tern's browser, then reloads that block signed in.
--- Cookie values never reach a toast or the log.
-local function import_cookies(cx: WindowCx, p: profiles.Profile, target: any, url: string, host: string)
-	local who = p.browser.name .. " " .. p.name
-	cx:toast("info", "Reading " .. who .. " cookies for " .. host, "macOS may ask to allow the " .. p.browser.keychain .. " Keychain item")
-	local spawn_error = profiles.export_cookies(p, host, function(cookies, err, cb_cx)
-		if cb_cx == nil then
-			return
-		end
-		if cookies == nil then
-			cb_cx:toast("error", "Could not read " .. who .. " cookies", err)
-			return
-		end
-		if #cookies == 0 then
-			cb_cx:toast("info", who .. " has no cookies for " .. host)
-			return
-		end
-		set_cookies(cb_cx, target.block, cookies, function(imported, rejected, done_cx)
-			if imported == 0 then
-				done_cx:toast("error", "Tern's browser took none of the " .. #cookies .. " cookies")
-				return
-			end
-			local sub = if rejected > 0 then rejected .. " were rejected" else nil
-			done_cx:toast("success", "Imported " .. imported .. " cookies for " .. host, sub)
-			done_cx.browser:call({ op = "goto", block = target.block, url = url })
-		end)
-	end)
-	if spawn_error then
-		cx:toast("error", "Could not read " .. who .. " cookies", spawn_error)
-	end
+local function open_in_tern(cx: WindowCx, p: profiles.Profile)
+	browser.open(cx, p, nil, false)
 end
 
 tern.command({
 	id = "switch",
-	title = PREFIX .. ": Open profile…",
+	title = PREFIX .. ": Open profile in Tern…",
 	icon = "compass",
 	group = GROUP,
 	run = function(cx: WindowCx)
 		-- Read each time: profiles made since the window started show up.
 		local list = load_or_explain(cx)
 		if list ~= nil then
-			pick_profile(cx, list, "Open a " .. noun(list), launch)
+			pick_profile(cx, list, "Open a " .. noun(list) .. " in Tern", open_in_tern)
 		end
 	end,
 })
@@ -189,68 +126,45 @@ tern.command({
 		local current = profiles.link_id()
 		local list = profiles.load()
 		local items: { PickItem } = {
-			{ label = "Tern", detail = "links open in Tern (default)", current = current == nil },
+			{ label = "Tern", detail = "links open in Tern's default browser (default)", current = current == nil },
 		}
 		table.move(profile_items(list, current), 1, #list, 2, items)
 		cx:pick({ items = items, placeholder = "Open plain link clicks in", icon = "share" })
 			:next(function(item: PickItem?, _e: string?, pick_cx: WindowCx?)
-				if item == nil then
+				if item == nil or pick_cx == nil then
 					return
 				end
-				local wcx = pick_cx or cx
 				local p = profiles.find(list, item.id)
 				if p ~= nil then
 					profiles.set_link_id(p.id)
-					wcx:toast(
+					pick_cx:toast(
 						"success",
-						"Links open in " .. p.browser.name .. ": " .. p.name,
-						"Click a link with ⌘, ⌥, ⇧ or ⌃ to open it in Tern"
+						"Links open in Tern as " .. p.browser.name .. ": " .. p.name,
+						"Click a link with ⌘, ⌥, ⇧ or ⌃ to open it in Tern's default browser"
 					)
 				else
 					profiles.set_link_id(nil)
-					wcx:toast("info", "Links open in Tern again")
+					pick_cx:toast("info", "Links open in Tern's default browser again")
 				end
 			end)
 	end,
 })
 
+-- Copies a profile's sign-ins into its own Tern browser again (they are a
+-- one-off copy, not kept in step), then shows it. Only that profile's store
+-- changes; whatever browser is focused is left alone.
 tern.command({
 	id = "import",
-	title = PREFIX .. ": Sign this Tern page in with a profile…",
+	title = PREFIX .. ": Copy sign-ins again…",
 	icon = "download",
 	group = GROUP,
 	run = function(cx: WindowCx)
-		-- The import is for the site the focused Tern browser block shows;
-		-- find that block before asking for a profile.
-		local focused = cx.session:focused()
-		cx.browser:call({ op = "blocks" }):next(function(res, e, blocks_cx)
-			local wcx = blocks_cx or cx
-			local blocks = if res ~= nil and res.ok ~= nil and e == nil then (res.ok :: any).blocks else nil
-			local target: any = nil
-			if type(blocks) == "table" then
-				for _, b in blocks :: any do
-					if b.block == focused then
-						target = b
-					end
-				end
-			end
-			if target == nil then
-				wcx:toast("error", "Focus a Tern browser block first", "The import is for the site that block shows")
-				return
-			end
-			local url: string = target.url
-			local host = if type(url) == "string" then string.match(url, "^https?://([^/:?#]+)") else nil
-			if host == nil then
-				wcx:toast("error", "That page has no site to import cookies for", url)
-				return
-			end
-			local list = load_or_explain(wcx)
-			if list ~= nil then
-				pick_profile(wcx, list, "Sign " .. host .. " in with a " .. noun(list), function(pick_cx, p)
-					import_cookies(pick_cx, p, target, url, host)
-				end)
-			end
-		end)
+		local list = load_or_explain(cx)
+		if list ~= nil then
+			pick_profile(cx, list, "Copy sign-ins again from a " .. noun(list) .. " into its Tern browser", function(pick_cx, p)
+				browser.open(pick_cx, p, nil, true)
+			end)
+		end
 	end,
 })
 
@@ -264,19 +178,41 @@ for _, p in startup do
 		icon = "compass",
 		group = GROUP,
 		run = function(cx: WindowCx)
-			launch(cx, p)
+			open_in_tern(cx, p)
 		end,
 	})
 end
 
--- With a routing profile chosen, plain http(s) link clicks open in it.
--- Any modifier held (⌘, ⌥, ⇧, ⌃ — the "open differently" idioms) falls
--- through to Tern's own handling.
+-- The profiles block's ⏎ (the host has no browser): only an open URI its own
+-- pane requested opens anything (see profiles.take_open); every other one is
+-- swallowed, never handed to the system. Several windows may see the same
+-- request; the first takes it.
+local function host_request(link: LinkRequest, cx: WindowCx)
+	local id = profiles.take_open(link.pane, link.url)
+	if id == nil then
+		return
+	end
+	local p = profiles.find(profiles.load(), id) or profiles.resolve(id)
+	if p == nil then
+		cx:toast("error", "That browser profile is not on this Mac", "Open it from a Tern window on the Mac that has it")
+		return
+	end
+	browser.open(cx, p, nil, false)
+end
+
+-- With a routing profile chosen, plain http(s) link clicks open in its Tern
+-- browser. Any modifier held (⌘, ⌥, ⇧, ⌃ — the "open differently" idioms)
+-- falls through to Tern's own handling, as do links inside a profile's own
+-- browser, which stay there.
 tern.route.link(function(link: LinkRequest, cx: WindowCx): RouteDecision?
+	if profiles.is_open_uri(link.url) then
+		host_request(link, cx)
+		return { handled = true }
+	end
 	if link.mods.shift or link.mods.cmd or link.mods.alt or link.mods.ctrl then
 		return nil
 	end
-	if string.match(link.url, "^https?://") == nil then
+	if string.match(link.url, "^https?://") == nil or browser.owns(link.pane) then
 		return nil
 	end
 	local id = profiles.link_id()
@@ -290,15 +226,6 @@ tern.route.link(function(link: LinkRequest, cx: WindowCx): RouteDecision?
 		profiles.set_link_id(nil)
 		return nil
 	end
-	local what = "Link did not open in " .. p.browser.name
-	local spawn_error = profiles.launch(p, link.url, function(r: ProcessResult, cb_cx: WindowCx?)
-		if r.status ~= 0 and cb_cx then
-			cb_cx:toast("error", what, "open exited with status " .. r.status)
-		end
-	end)
-	if spawn_error then
-		cx:toast("error", what, spawn_error)
-		return nil -- let Tern handle the link after all
-	end
+	browser.open(cx, p, link.url, false)
 	return { handled = true }
 end)

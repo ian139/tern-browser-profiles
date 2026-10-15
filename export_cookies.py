@@ -1,22 +1,27 @@
 #!/usr/bin/env python3
 """Print one Chromium browser profile's live cookies as JSON on stdout.
 
-usage: export_cookies.py --data DATA --keychain SERVICE PROFILE_DIR HOST [--summary]
+usage: export_cookies.py --data DATA --keychain SERVICE PROFILE_DIR (HOST | --all) [--summary]
 
 DATA is a relative directory under ~/Library/Application Support; SERVICE is
 the browser's Safe Storage Keychain item. Reads the profile's `Cookies`
-SQLite file (a copy, since the browser keeps it locked) and decrypts values
-with that Keychain key; macOS asks the user to allow the read. Nothing is
-written to disk except a temporary database copy, removed on exit.
+SQLite file (a copy in a private temporary directory, since the browser keeps
+it locked) and decrypts values with that Keychain key; macOS may ask the user
+to allow the read. The Keychain is read only when there is at least one live
+encrypted cookie to decrypt. Nothing is written to disk except the temporary
+database copy, removed on exit.
 
-Only cookies of HOST's site are exported (HOST and its parent/sibling
-subdomains: ai.example.com -> everything under example.com).
+With HOST, only cookies of HOST's site are exported (HOST and its
+parent/sibling subdomains: ai.example.com -> everything under example.com).
+With --all, every live cookie of the profile is exported; a profile folder
+that has no Cookies database yet (a fresh profile) exports [].
 
 Each cookie is {name, value, domain, path, expires?, httpOnly, secure,
 sameSite?} -- the shape of Tern's browser `setCookie` op. With --summary
 only the per-domain cookie counts are printed, never a value.
 """
 import argparse
+import contextlib
 import ctypes
 import hashlib
 import json
@@ -88,12 +93,35 @@ def decrypted(key, enc, host, hashed):
 
 
 def database(data, profile):
-    base = os.path.expanduser("~/Library/Application Support")
+    """The profile's Cookies database path, or None when the profile folder
+    exists but has none yet. A missing profile folder is an error."""
+    folder = os.path.join(os.path.expanduser("~/Library/Application Support"), data, profile)
+    if not os.path.isdir(folder):
+        fail("no %s profile %r" % (data, profile))
     for rel in ("Network/Cookies", "Cookies"):
-        path = os.path.join(base, data, profile, rel)
+        path = os.path.join(folder, rel)
         if os.path.isfile(path):
             return path
-    fail("no Cookies database in %s profile %r" % (data, profile))
+    return None
+
+
+def read_rows(src):
+    """(hashed, rows) from a private temporary copy of the Cookies database
+    and its WAL sidecars; the copy is closed and removed before returning."""
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = os.path.join(tmp, "Cookies")
+        shutil.copyfile(src, copy)
+        for suffix in ("-wal", "-shm"):
+            if os.path.isfile(src + suffix):
+                shutil.copyfile(src + suffix, copy + suffix)
+        with contextlib.closing(sqlite3.connect(copy)) as db:
+            row = db.execute("select value from meta where key = 'version'").fetchone()
+            hashed = row is not None and int(row[0]) >= HOST_HASH_META_VERSION
+            rows = db.execute(
+                "select host_key, name, value, encrypted_value, path, expires_utc,"
+                " is_secure, is_httponly, samesite, has_expires from cookies"
+            ).fetchall()
+    return hashed, rows
 
 
 def site_of(host):
@@ -113,12 +141,23 @@ def in_site(cookie_host, site):
     return h == site or h.endswith("." + site)
 
 
+def emit(cookies, undecryptable, summary):
+    if summary:
+        counts = {}
+        for c in cookies:
+            counts[c["domain"]] = counts.get(c["domain"], 0) + 1
+        json.dump({"total": len(cookies), "undecryptable": undecryptable, "domains": counts}, sys.stdout)
+    else:
+        json.dump(cookies, sys.stdout)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", required=True, help="browser data directory under ~/Library/Application Support")
     parser.add_argument("--keychain", required=True, help="browser Keychain service")
     parser.add_argument("profile", metavar="PROFILE_DIR")
-    parser.add_argument("host", metavar="HOST")
+    parser.add_argument("host", metavar="HOST", nargs="?", help="export only this host's site")
+    parser.add_argument("--all", action="store_true", help="export every site's cookies")
     parser.add_argument("--summary", action="store_true", help="print counts instead of cookie values")
     args = parser.parse_args()
     if os.path.isabs(args.data) or any(
@@ -130,37 +169,43 @@ def main():
         parser.error("--keychain must contain only letters, digits, spaces, '.', '_' or '-'")
     if not re.fullmatch(r"[A-Za-z0-9 _-]+", args.profile):
         parser.error("PROFILE_DIR must contain only letters, digits, spaces, '_' or '-'")
-    if not re.fullmatch(r"[A-Za-z0-9.-]+", args.host):
-        parser.error("HOST must contain only letters, digits, '.' or '-'")
-    site = site_of(args.host)
+    if args.all and args.host is not None:
+        parser.error("give either HOST or --all, not both")
+    if not args.all and args.host is None:
+        parser.error("give HOST to export one site, or --all for every site")
+    site = None
+    if not args.all:
+        if not re.fullmatch(r"[A-Za-z0-9.-]+", args.host):
+            parser.error("HOST must contain only letters, digits, '.' or '-'")
+        site = site_of(args.host)
+
     src = database(args.data, args.profile)
-    key = keychain_key(args.keychain)
+    if src is None:
+        if site is not None:
+            fail("no Cookies database in %s profile %r" % (args.data, args.profile))
+        emit([], 0, args.summary)  # a fresh profile has no cookies yet
+        return
+    hashed, rows = read_rows(src)
 
-    with tempfile.TemporaryDirectory() as tmp:
-        copy = os.path.join(tmp, "Cookies")
-        shutil.copy2(src, copy)
-        for suffix in ("-wal", "-shm"):
-            if os.path.isfile(src + suffix):
-                shutil.copy2(src + suffix, copy + suffix)
-        db = sqlite3.connect(copy)
-        row = db.execute("select value from meta where key = 'version'").fetchone()
-        hashed = row is not None and int(row[0]) >= HOST_HASH_META_VERSION
-        rows = db.execute(
-            "select host_key, name, value, encrypted_value, path, expires_utc,"
-            " is_secure, is_httponly, samesite, has_expires from cookies"
-        ).fetchall()
-        db.close()
-
-    rows = [r for r in rows if in_site(r[0], site)]
+    # Keep only this site's live cookies before touching the Keychain, so a
+    # profile with nothing to decrypt never prompts for the key.
     now = time.time()
-    cookies = []
-    undecryptable = decrypted_count = 0
-    for host, name, value, enc, path, expires_utc, secure, httponly, samesite, has_expires in rows:
+    live = []
+    for r in rows:
+        if site is not None and not in_site(r[0], site):
+            continue
+        has_expires, expires_utc = r[9], r[5]
         expires = None
         if has_expires and expires_utc:
             expires = expires_utc / 1e6 - EPOCH_DELTA
             if expires <= now:
                 continue
+        live.append((r, expires))
+    key = keychain_key(args.keychain) if any(r[3] for r, _ in live) else None
+
+    cookies = []
+    undecryptable = decrypted_count = 0
+    for (host, name, value, enc, path, _, secure, httponly, samesite, _), expires in live:
         if enc:
             value = decrypted(key, enc, host, hashed)
             if value is None:
@@ -184,16 +229,10 @@ def main():
     if undecryptable and not decrypted_count:
         fail(
             "none of the %d live %s cookies could be decrypted with the %s key"
-            % (undecryptable, site, args.keychain)
+            % (undecryptable, site or "profile", args.keychain)
         )
 
-    if args.summary:
-        counts = {}
-        for c in cookies:
-            counts[c["domain"]] = counts.get(c["domain"], 0) + 1
-        json.dump({"total": len(cookies), "undecryptable": undecryptable, "domains": counts}, sys.stdout)
-    else:
-        json.dump(cookies, sys.stdout)
+    emit(cookies, undecryptable, args.summary)
 
 
 main()

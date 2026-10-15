@@ -1,9 +1,9 @@
 --!strict
 -- The `profiles` block: every profile of every installed Chromium browser as
--- a list, launched from Tern.
+-- a list, each opened in its own Tern browser.
 --
 -- Keys: ↑/↓ (or k/j) move, Home/End jump, ⏎ (or double-click) open the
--- profile in its browser, l routes Tern's http(s) link clicks to it, r reloads.
+-- profile in Tern, l routes Tern's http(s) link clicks to it, r reloads.
 
 local profiles = require("./profiles")
 local ui = tern.ui
@@ -33,26 +33,15 @@ local function move(state: State, to: number)
 	end
 end
 
--- Whether the block's pane still runs (a ended block leaves the list).
-local function pane_runs(pane: number): boolean
-	for _, info in tern.pane.list() do
-		if info.pane == pane then
-			return true
-		end
+-- The host has no browser, so the window opens it: a one-shot request for
+-- this pane, then the open URI the window's link route takes it from.
+local function open_in_tern(cx: BlockCx, p: profiles.Profile)
+	local uri, err = profiles.request_open(cx.pane, p.id)
+	if uri == nil then
+		cx:toast("error", "Tern's browser did not open " .. p.browser.name .. ": " .. p.name, err)
+		return
 	end
-	return false
-end
-
-local function launch(cx: BlockCx, pane: number, p: profiles.Profile)
-	local what = p.browser.name .. " did not open " .. p.name
-	local spawn_error = profiles.launch(p, nil, function(r: ProcessResult)
-		if r.status ~= 0 and pane_runs(pane) then
-			cx:toast("error", what, "open exited with status " .. r.status)
-		end
-	end)
-	if spawn_error then
-		cx:toast("error", what, spawn_error)
-	end
+	cx:open(uri)
 end
 
 local function toggle_link(state: State, cx: BlockCx)
@@ -64,13 +53,13 @@ local function toggle_link(state: State, cx: BlockCx)
 	-- have changed it since the last reload.
 	if profiles.link_id() == p.id then
 		profiles.set_link_id(nil)
-		cx:toast("info", "Links open in Tern again")
+		cx:toast("info", "Links open in Tern's default browser again")
 	else
 		profiles.set_link_id(p.id)
 		cx:toast(
 			"success",
-			"Links open in " .. p.browser.name .. ": " .. p.name,
-			"Click a link with ⌘, ⌥, ⇧ or ⌃ to open it in Tern"
+			"Links open in Tern as " .. p.browser.name .. ": " .. p.name,
+			"Click a link with ⌘, ⌥, ⇧ or ⌃ to open it in Tern's default browser"
 		)
 	end
 end
@@ -133,7 +122,7 @@ local function dock_view(state: State, linked: string?): Node
 	return ui.col({
 		ui.lines({
 			ui.text(status),
-			ui.text({ ui.span("↑↓ move  ⏎ open  l route links  r reload", "dim") }),
+			ui.text({ ui.span("↑↓ move  ⏎ open in Tern  l route links  r reload", "dim") }),
 		}),
 	})
 end
@@ -178,7 +167,7 @@ local def: BlockDef<State> = {
 			if p == nil then
 				return false
 			end
-			launch(cx, state.cx.pane, p)
+			open_in_tern(cx, p)
 		elseif k == "l" then
 			toggle_link(state, cx)
 		elseif k == "r" then
@@ -195,7 +184,7 @@ local def: BlockDef<State> = {
 			if ev.ev == "activate" then
 				local p = profiles.find(state.list, state.cursor)
 				if p then
-					launch(cx, state.cx.pane, p)
+					open_in_tern(cx, p)
 				end
 			end
 		end

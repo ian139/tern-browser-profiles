@@ -1,11 +1,11 @@
 --!strict
--- Shared by both halves: the installed Chromium browsers, their profiles and
--- the launcher.
+-- Shared by both halves: the installed Chromium browsers, their profiles,
+-- the Tern browser store each profile opens in, and the cookie exporter.
 --
 -- Reads only the profile directory names, display names and signed-in
 -- addresses from each browser's "Local State" file. No cookies, tokens,
 -- history or other profile data are read (cookie import goes through
--- export_cookies.py, on request only).
+-- export_cookies.py, on request only). Source profiles are never changed.
 
 -- One Chromium browser this plugin knows (macOS).
 export type Browser = {
@@ -23,7 +23,7 @@ export type Installed = {
 	app: string,
 	data: string,
 	keychain: string,
-	bundle: string, -- absolute path of the app bundle `open` launches
+	bundle: string, -- absolute path of the app bundle that was found
 	root: string, -- absolute user-data directory
 }
 
@@ -38,6 +38,9 @@ export type Profile = {
 
 local SUPPORT = "Library/Application Support"
 local KEY_LINK = "link_profile"
+local KEY_COPIED = "cookies_copied:" -- .. profile id: sign-ins copied
+local KEY_PENDING = "pending_open_" -- .. host block pane: its open request
+local OPEN_URI = "brave-profiles://open/"
 
 local M = {}
 
@@ -390,55 +393,77 @@ function M.set_link_id(id: string?)
 	tern.kv.set(KEY_LINK, id)
 end
 
--- Opens profile `p` in its browser, optionally at `url`.
---
--- Validation problems and spawn failures return a reason synchronously;
--- `done` sees the launch command's result (and, in a window, a fresh cx)
--- when it starts. `url` must be http(s) so a link can never smuggle in
--- another browser flag.
-function M.launch(p: Profile, url: string?, done: ((r: ProcessResult, cx: WindowCx?) -> ())?): string?
-	if tern.runtime.os ~= "macos" then
-		return "opening browsers from Tern is macOS-only"
-	end
-	if not M.valid_dir(p.dir) then
-		return "invalid browser profile directory"
-	end
-	if url ~= nil and string.match(url, "^https?://") == nil then
-		return "only http(s) URLs can be opened"
-	end
-	-- `open` is given the bundle path that was found, not an app name, so
-	-- the bundle that runs is the one that was checked.
-	local argv: { string } = { "open", "-n", p.browser.bundle, "--args", "--profile-directory=" .. p.dir }
-	if url ~= nil then
-		table.insert(argv, url)
-	end
-	local ok, err = pcall(function()
-		tern.process.run(argv, { timeout_ms = 15000 }, function(r: ProcessResult, cx: WindowCx?)
-			if done ~= nil then
-				done(r, cx)
-			end
-		end)
-	end)
-	if not ok then
-		return tostring(err)
-	end
-	return nil
+-- The name of `p`'s own persistent Tern browser store: the same profile
+-- always opens in the same store, different profiles never share one.
+function M.store(p: Profile): string
+	return "brave-profiles:" .. p.id
 end
 
--- Exports profile `p`'s live cookies for `host`'s site, decrypted, through
--- export_cookies.py (it reads the browser's Cookies database and asks the
--- Keychain for the browser's Safe Storage key; macOS prompts the user to
--- allow that). `done` gets the cookies in the shape of Tern's browser
--- `setCookie` op, or a reason. Validation problems and spawn failures return
--- a reason synchronously.
-function M.export_cookies(p: Profile, host: string, done: (cookies: { any }?, err: string?, cx: WindowCx?) -> ()): string?
+-- Whether `id`'s sign-ins were copied into its Tern store. A corrupt store
+-- reads as "not yet", which only means copying again.
+function M.copied(id: string): boolean
+	local ok, v = pcall(tern.kv.get, KEY_COPIED .. id)
+	return ok and v == true
+end
+
+-- Records that `id`'s sign-ins are in its Tern store; a reason on failure.
+function M.set_copied(id: string): string?
+	local ok, err = pcall(tern.kv.set, KEY_COPIED .. id, true)
+	return if ok then nil else tostring(err)
+end
+
+-- The host block has no browser, so it asks the window to open a profile:
+-- it records a one-shot request for its pane, then opens this URI, which
+-- only the window's link route understands (see `take_open`).
+function M.request_open(pane: number, id: string): (string?, string?)
+	local ok, err = pcall(tern.kv.set, KEY_PENDING .. pane, id)
+	if not ok then
+		return nil, tostring(err)
+	end
+	return OPEN_URI .. (string.gsub(id, ".", function(c: string): string
+		return string.format("%02x", string.byte(c))
+	end)), nil
+end
+
+function M.is_open_uri(url: string): boolean
+	return string.sub(url, 1, #OPEN_URI) == OPEN_URI
+end
+
+-- The profile id an open URI from `pane` asks for, when that pane's block
+-- requested exactly it; the request is used up first, so it opens once.
+-- Nil for anything else (a forged or repeated URI opens nothing).
+function M.take_open(pane: number, url: string): string?
+	local hex = string.match(url, "^brave%-profiles://open/(%x+)$")
+	if hex == nil or #hex % 2 ~= 0 then
+		return nil
+	end
+	local id = (string.gsub(hex, "%x%x", function(h: string): string
+		return string.char(tonumber(h, 16) :: number)
+	end))
+	local ok, v = pcall(tern.kv.get, KEY_PENDING .. pane)
+	if not ok or v ~= id then
+		return nil
+	end
+	if not pcall(tern.kv.set, KEY_PENDING .. pane, nil) then
+		return nil
+	end
+	return id
+end
+
+-- Exports profile `p`'s live cookies, decrypted, through export_cookies.py:
+-- those of `host`'s site, or of every site when `host` is nil. It reads the
+-- browser's Cookies database and asks the Keychain for the browser's Safe
+-- Storage key (macOS prompts the user to allow that). `done` gets the
+-- cookies in the shape of Tern's browser `setCookie` op, or a reason.
+-- Validation problems and spawn failures return a reason synchronously.
+function M.export_cookies(p: Profile, host: string?, done: (cookies: { any }?, err: string?, cx: WindowCx?) -> ()): string?
 	if tern.runtime.os ~= "macos" then
 		return "importing browser cookies is macOS-only"
 	end
 	if not M.valid_dir(p.dir) then
 		return "invalid browser profile directory"
 	end
-	if string.match(host, "^[%w.-]+$") == nil then
+	if host ~= nil and string.match(host, "^[%w.-]+$") == nil then
 		return "not a plain host name: " .. host
 	end
 	local b = p.browser
@@ -446,7 +471,7 @@ function M.export_cookies(p: Profile, host: string, done: (cookies: { any }?, er
 		-- `cwd = "."` is the plugin directory, where the script lives. The
 		-- generous timeout covers the Keychain prompt waiting for the user.
 		tern.process.run(
-			{ "/usr/bin/python3", "export_cookies.py", "--data", b.data, "--keychain", b.keychain, p.dir, host },
+			{ "/usr/bin/python3", "export_cookies.py", "--data", b.data, "--keychain", b.keychain, p.dir, host or "--all" },
 			{ cwd = ".", timeout_ms = 120000 },
 			function(r: ProcessResult, cx: WindowCx?)
 				if r.status ~= 0 then
